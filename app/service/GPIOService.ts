@@ -41,11 +41,11 @@ class GPIOService {
     gpiox.init_gpio(GPIOMap.door, gpiox.GPIO_MODE_OUTPUT, true);
 
     // Polling for button press with debouncing
-    gpiox.watch_gpio(GPIOMap.BUTTONS.startBtn, gpiox.GPIO_MODE_INPUT_PULLUP, 4000, gpiox.GPIO_EDGE_FALLING, (state, edge, pin) => this.pollStartBtn(pin));
+  
     gpiox.watch_gpio(GPIOMap.BUTTONS.openBtn, gpiox.GPIO_MODE_INPUT_PULLUP, 4000, gpiox.GPIO_EDGE_FALLING, (state, edge, pin) => this.pollOpenBtn(pin)); */
 
-
-
+    // @ts-ignore - ABYSMAL typings for gpiox. 
+    gpiox.watch_gpio(this.map.input.MagnetDetection, gpiox.GPIO_MODE_INPUT_PULLUP, 4000, gpiox.GPIO_EDGE_FALLING, (state, edge, pin) => this.pollStartBtn(pin));
 
   }
 
@@ -59,13 +59,8 @@ class GPIOService {
 
 
   private pollStartBtn(pin: number): void {
-    if (this.inputBlocking) {
-      console.log("Input is already blocking", pin);
-      return;
-    }
-
-    this.inputBlocking = true;
-    console.log("Start button pressed on pin", pin);
+ 
+    console.log("detected a magnet!", pin);
 
 
   }
