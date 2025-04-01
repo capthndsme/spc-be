@@ -1,4 +1,5 @@
 import ArduinoInputService from "./ArduinoInputService.js";
+import GPIOService from "./GPIOService.js";
 
 class TheService {
   booted = false;
@@ -13,6 +14,8 @@ class TheService {
    */
   #activeSession: boolean = false;
 
+  #gpioService = GPIOService;
+
   /**
    * 
    */
@@ -23,6 +26,7 @@ class TheService {
     console.log(`THE SERVICE HAS BOOT`)
     // start segment.
     this.startup();
+    this.#gpioService.boot();
   }
 
   async startup() {
