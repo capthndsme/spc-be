@@ -7,8 +7,8 @@ class AuthService {
 
   readonly #bcrypt = new Bcrypt({})
 
-  async validToken(token: string|null, user: number|null) {
-    return true;
+  async validToken(token: string|null|undefined, user: number|null) {
+    
     if (!token) return false;
 
     if (!user) return false;

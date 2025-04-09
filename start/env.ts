@@ -30,6 +30,13 @@ export default await Env.create(new URL('../', import.meta.url), {
   DB_DATABASE: Env.schema.string(),
   IS_PI: Env.schema.boolean(),
   SERIAL_PATH: Env.schema.string(),
+  SERIAL_PATH_SMS:  Env.schema.string(),
   BAUD_RATE: Env.schema.number(),
-  DATA_PATH: Env.schema.string()
+  DATA_PATH: Env.schema.string(),
+
+  // SMS sender.
+
+  SMS_USERNAME: Env.schema.string(),
+  SMS_PASSWORD: Env.schema.string(),
+  
 })

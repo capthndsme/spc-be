@@ -14,6 +14,7 @@ const corsConfig = defineConfig({
   exposeHeaders: [],
   credentials: true,
   maxAge: 90,
+  
 })
 
 export default corsConfig

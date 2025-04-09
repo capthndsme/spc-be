@@ -21,7 +21,14 @@ export default class extends BaseSchema {
       table.enum('state', ['PENDING', 'OTP_WAITING', 'DELETED', 'DELIVERED', 'FINISHED']).notNullable()
       table.integer('before_weight').nullable()
       table.integer('after_weight').nullable()
-      table.integer('money_content').notNullable()
+
+
+      table.integer('money_content').nullable()
+      table.enum('type', ['COD', 'PAID']).notNullable()
+      // otp
+
+      table.string('otp_rider').nullable()
+      
       
       
     })

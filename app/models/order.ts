@@ -22,6 +22,10 @@ export default class Order extends BaseModel {
    */
   declare orderId: string;
 
+
+  @column()
+  declare otpRider: string;
+
   @column()
   declare riderName: string;
 
@@ -63,7 +67,10 @@ export default class Order extends BaseModel {
   declare afterWeight?: number;
 
   @column()
-  declare moneyContent: number
+  declare moneyContent?: number
+
+  @column()
+  declare type: "COD" | "PAID"
 
 
 }

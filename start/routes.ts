@@ -8,6 +8,7 @@
 */
 
 import AuthController from '#controllers/auth_controller'
+import InternalsController from '#controllers/internals_controller'
 import UsersController from '#controllers/UserController'
 import router from '@adonisjs/core/services/router'
 
@@ -18,16 +19,32 @@ router.get('/', async () => {
 })
 
 router.group(() => {
- 
-  
+
+
   router.get('/users/me', [UsersController, 'getMe'])
 
-  router.post('/login', [AuthController, 'login'] )
+  router.post('/login', [AuthController, 'login'])
   router.post('/users/create', [UsersController, 'createUser'])
   router.put('/users/modify', [UsersController, 'modifyUser'])
   router.delete('/users/delete/:id', [UsersController, 'deleteUser'])
   router.get('/users/list', [UsersController, 'listUsers'])
 
-  
+
+
 })
-router.post('/api/auth/login', [AuthController, 'login'])
+router.post('/auth/login', [AuthController, 'login'])
+// check auth api
+
+// logout api
+
+
+/**
+ * INTERNAL ROUTES FOR TouchScreenApp
+ */
+router.group(() => {
+  /**
+ *  GPIO Controls
+ */
+  router.post("/wait-relock", [InternalsController, 'waitRelock'])
+})
+  .prefix("/-internalFFXX-")

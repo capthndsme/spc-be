@@ -1,5 +1,7 @@
 import ArduinoInputService from "./ArduinoInputService.js";
 import GPIOService from "./GPIOService.js";
+import OTPService from "./OTPService.js";
+ 
 
 class TheService {
   booted = false;
@@ -27,6 +29,9 @@ class TheService {
     // start segment.
     this.startup();
     this.#gpioService.boot();
+
+     setTimeout(() => OTPService.testSendMessage(), 25000)
+ 
   }
 
   async startup() {
