@@ -58,7 +58,11 @@ class SMSService {
     number: string
   ) {
     await this.sendSMSAPI(message, number);
-    await ArduinoInputService.sendSms(number, message)
+    try {
+      await ArduinoInputService.sendSms(number, message)
+    } catch (e) {
+      console.error("fail send sms", e)
+    }
   }
   
 }

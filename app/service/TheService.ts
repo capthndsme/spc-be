@@ -1,6 +1,5 @@
 import ArduinoInputService from "./ArduinoInputService.js";
 import GPIOService from "./GPIOService.js";
-import OTPService from "./OTPService.js";
  
 
 class TheService {
@@ -30,7 +29,7 @@ class TheService {
     this.startup();
     this.#gpioService.boot();
 
-     setTimeout(() => OTPService.testSendMessage(), 25000)
+ 
  
   }
 
@@ -50,10 +49,15 @@ class TheService {
     return {
       sensors: this.getCurrentSensorData(),
       hasActiveSession: this.#activeSession,
-      isDispensing: this.#dispensing
+      isDispensing: this.#dispensing,
+    
 
     }
   }
+
+  /**
+   * Capturing internal camera
+   */
 }
 
 

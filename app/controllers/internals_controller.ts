@@ -23,24 +23,31 @@ export default class InternalsController {
    */
   async findOrderId({ request }: HttpContext) {
     const id = request.param('id')
-    const data = await OrderingService.findOrderId(id);
-    if (!data) return
+    const data = await OrderingService.findOrderByParcelId(id);
+    
     return StatusResponse(data, Status.GENERIC_SUCCESS, false);
   }
 
 
   /**
-   * Send and set OTP
+   * Set phone nunmber and set OTP.
    */
 
   async sendOTP({ request }: HttpContext) {
-
+    const { number, orderId } = request.body();
+    const data = await OrderingService.changeNumberAndSendOTP(number, orderId);
+    return StatusResponse(data, Status.GENERIC_SUCCESS, false);
+    
   }
 
   /**
    * Validate OTP
    */
   async validateOTP({ request }: HttpContext) {
+    const { orderId, otp } = request.body();
+    const data = await OrderingService.validateOtp(orderId, otp);
+    return StatusResponse(data, Status.GENERIC_SUCCESS, false);
+    
 
   }
   

@@ -24,7 +24,7 @@ export default class Order extends BaseModel {
 
 
   @column()
-  declare otpRider: string;
+  declare otpRider: string | null;
 
   @column()
   declare riderName: string;
@@ -52,13 +52,13 @@ export default class Order extends BaseModel {
   declare slotId: number;
 
   @hasOne(() => Slot, {
-    foreignKey: 'slotId',
-    localKey: 'id',
+    foreignKey: 'id',
+    localKey: 'slotId',
   })
   declare slot: HasOne<typeof Slot>;
 
   @column()
-  declare state: "PENDING" | "OTP_WAITING" | "DELETED" | "DELIVERED" |  "FINISHED";
+  declare state: "PENDING" | "OTP_WAITING" | "DROP_PENDING" | "DELETED" | "DELIVERED" |  "FINISHED";
 
   @column()
   declare beforeWeight?: number;

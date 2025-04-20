@@ -27,12 +27,15 @@ export default class Slot extends BaseModel {
   @column()
   declare lastTriggered: number | null;
 
+  @column()
+  declare num: number 
+
 
   /**
    * Active order id validation
    */
   @column()
-  declare activeOrderId: string
+  declare activeOrderId: number | null
 
 
   @hasMany(() => Order, {

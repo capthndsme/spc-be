@@ -221,8 +221,9 @@ class ArduinoInputBridge extends EventEmitter {
                  {
                     console.log('Arduino Info:', trimmedData);
                     const isSMSreadyReceived = trimmedData.includes('initialized in SMS text mode');
-                    this.smsReady = isSMSreadyReceived;
-                    if (isSMSreadyReceived) console.log("yes, it's ready.")
+                   if (isSMSreadyReceived) this.smsReady = true;
+                    
+                     
                  }
             }
         } catch (error) {
@@ -311,6 +312,50 @@ class ArduinoInputBridge extends EventEmitter {
       });
   }
 
+  /** 
+   * Tare function. Tares the arduino, 
+   * by sending "TARE" to console, and awaits the
+   * ACK:TARE acknowledgement packet.
+  */
+
+  async tare() {
+
+    return new Promise((resolve, reject) => {
+      if (this.isMockMode) {
+        console.log(`Mock TARE`);
+        // Simulate success after a short delay
+        setTimeout(() => resolve(`Mock TARE success`), 500);
+        return;
+      }
+
+      if (!this.isConnected || !this.port) {
+        console.error('Cannot TARE: Not connected to Arduino.');
+        reject(new Error('Not connected to Arduino'));
+        return;
+      }
+      const command = `TARE\n`;
+      this.port?.write(command, (err) => {
+        if (err) {
+          console.error('Error writing TARE command to serial port:', err.message);
+          reject(err);
+        } else {
+          console.log(`Command "${command.trim()}" sent to Arduino.`);
+          this.parser?.once('data', (data: string) => {
+            const trimmedData = data.trim();
+            if (trimmedData.includes("ACK:TARE") || trimmedData.includes("Received command: TARE")) {
+              console.log('TARE success confirmed by Arduino.');
+              resolve("TARE success");
+            } else {
+              console.error('TARE failure confirmed by Arduino.');
+              reject(new Error(`Arduino reported TARE failed. Response: ${trimmedData}`));
+            }
+          })
+        }
+      });
+    })
+    
+
+  }
   // --- Private helper to process the SMS queue ---
   private _processSmsQueue(): void {
     // Don't process if in mock mode, already sending, not connected, or queue is empty
