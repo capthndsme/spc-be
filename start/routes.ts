@@ -78,6 +78,15 @@ router.group(() => {
 
   // dash data, used for detecting changes from 0 to 100 or whatever
   router.get('/dash', [DashController, 'getDash'])
+ 
+  // cancel order
+  router.post('/orders/cancel', [InternalsController, 'cancelOrder'])
+  // drop money
+  router.post('/orders/drop', [InternalsController, 'dropMoney'])
+
+  // finish order
+  router.post('/orders/finish', [InternalsController, 'finishOrder'])
+  
 
 
 })

@@ -58,6 +58,7 @@ class TheService {
   /**
    * Capturing internal camera
    */
+  
 }
 
 

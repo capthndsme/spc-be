@@ -9,10 +9,14 @@ export default class InternalsController {
    * Wait Relock App
    */
   async waitRelock() {
-    await new Promise((res, rej) => {
+    return await new Promise((res) => {
       GPIOService.unlockAndWaitForRelock(
-        () => res(true),
-        () => rej(false),
+        () => res(
+          StatusResponse(true, Status.GENERIC_SUCCESS, false)
+        ),
+        () => res(
+          StatusResponse(false, Status.MAGNET_ERROR, false)
+        ),
         120000 /** 120 seconds */
       )
     });
@@ -54,7 +58,34 @@ export default class InternalsController {
 
   
 
+ /**
+  * triggers cancel order
+  * 
+  */
+  async cancelOrder({ request }: HttpContext) {
+    const { orderId } = request.body();
+    const data = await OrderingService.cancelOrder(orderId);
+    return StatusResponse(data, Status.GENERIC_SUCCESS, false);
+  }
 
+  /**
+   * triggers drop money
+   */
+  async dropMoney({ request }: HttpContext) {
+    const { orderId } = request.body();
+    const data = await OrderingService.dropMoney(orderId);
+    return StatusResponse(data, Status.GENERIC_SUCCESS, false);
+  }
+
+  /**
+   * triggers finish order
+   */
+  async finishOrder({ request }: HttpContext) {
+    const { orderId } = request.body();
+    const data = await OrderingService.finishOrder(orderId);
+    return StatusResponse(data, Status.GENERIC_SUCCESS, false);
+  }
+  
 
 
 }

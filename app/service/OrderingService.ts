@@ -3,7 +3,8 @@ import Slot from "#models/slot";
 import { DateTime } from "luxon";
 
 import SMSService from "./SMSService.js";
-import TheService from "./TheService.js";
+ 
+import ArduinoInputService from "./ArduinoInputService.js";
 
 class OrderingService {
 
@@ -232,10 +233,78 @@ class OrderingService {
 
   }
 
-  /** Opens the door, and waits for RE-LOCK */
-  async openAndLock() {
-    await TheService
+  /**
+   * Cancels an order orderId,
+   * by setting it to pending again
+   */
+  async cancelOrder(orderId: string) {
+    const order = await Order.query().whereLike('orderId', `%${orderId}%`).first();
+    if (!order) throw new Error("Order not found");
+    order.state = "PENDING";
+    await order.save();
+    return true;
   }
+
+  /**
+   * For COD, drops money by backwaring (-100) for 10 seconds,
+   * then stops (0). Afterwhich, we write a servo stop command,
+   * wait for 2 seconds, and return a true boolean. 
+   * ServoIndex = SlotId 
+   */
+  async dropMoney(orderId: string) {
+    const order = await Order.query().whereLike('orderId', `%${orderId}%`).first();
+    if (!order) throw new Error("Order not found");
+    if (order.type !== "COD") throw new Error("Order is not COD");
+    if (!order.slotId || order.slotId < 0) throw new Error("Order is not bound to a slot");
+    // when it's validated, set lock
+ 
+    await order.save();
+    // set servo to -100 for 10 seconds
+ 
+    await new Promise(res => setTimeout(res, 100));
+    console.log(`Dropping money for order ${orderId} in slot ${order.slotId}`)
+    const servoIndex = order.slotId;
+    const servoSpeed = -100;
+    const duration = 10000; // 10 seconds
+    const stopDelay = 2000; // 2 seconds
+ 
+    ArduinoInputService.setServoSpeed(servoIndex, servoSpeed);
+    await new Promise(resolve => setTimeout(resolve, duration));
+    ArduinoInputService.setServoSpeed(servoIndex, 0);
+    await new Promise(resolve => setTimeout(resolve, stopDelay));
+
+
+    return true;
+  }
+  
+
+
+  
+
+
+  /**
+   * Mark order as finished (delivered), frees the slot, and A TODO to notify the USER
+   */
+  async finishOrder(orderId: string) {
+    const order = await Order.query().whereLike('orderId', `%${orderId}%`).first();
+    if (!order) throw new Error("Order not found");
+    if (!order.slotId || order.slotId < 0) throw new Error("Order is not bound to a slot");
+    const slot = await Slot.find(order.slotId);
+    if (!slot) throw new Error("Slot not found");
+    slot.activeOrderId = null;
+    slot.moneyAmount = 0;
+    slot.isFilled = false;
+    await slot.save();
+    order.state = "DELIVERED";
+    await order.save();
+    return true;
+  }
+  
+
+
+  
+
+
 }
 
 

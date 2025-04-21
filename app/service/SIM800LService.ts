@@ -69,7 +69,7 @@ class SIM800LService {
 
     // Consider alternative permission methods (udev rules, add user to dialout group)
     private changePermission(): Promise<void> {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             const command = `sudo chmod 666 ${SERIAL_PORT_PATH}`;
             console.log(`SIM800L Service: Attempting to execute: ${command}`);
             exec(command, (error, stdout, stderr) => {

@@ -63,6 +63,8 @@ class ArduinoInputBridge extends EventEmitter {
         this.enterMockMode();
       }
     });
+
+
   }
 
   registerCallback(callback: SensorDataCallback): void {
@@ -146,8 +148,8 @@ class ArduinoInputBridge extends EventEmitter {
 
       // Reject current SMS job and clear state
       if (this.currentSmsJob) {
-          this.currentSmsJob.reject('Serial connection closed during sending.');
-          this._clearCurrentSmsState();
+        this.currentSmsJob.reject('Serial connection closed during sending.');
+        this._clearCurrentSmsState();
       }
       // Optionally reject all queued jobs
       // this.smsQueue.forEach(job => job.reject('Serial connection closed before sending.'));
@@ -156,84 +158,89 @@ class ArduinoInputBridge extends EventEmitter {
       this.emit('disconnected');
 
       if (wasConnected && !this.isMockMode) { // Only attempt reconnect if it was genuinely connected
-          console.log('Attempting to reconnect...');
-          // Implement reconnection logic here if needed, or rely on external process manager
-          setTimeout(() => {
-             if (!this.isConnected) { // Check again in case it reconnected quickly
-                 console.warn(`Failed to reconnect automatically to serial port ${env.get('SERIAL_PATH')}. Exiting or relying on process manager.`);
-                 // process.exit(1); // Or handle more gracefully
-             }
-          }, 5000); // Example reconnect attempt delay
+        console.log('Attempting to reconnect...');
+        // Implement reconnection logic here if needed, or rely on external process manager
+        setTimeout(() => {
+          if (!this.isConnected) { // Check again in case it reconnected quickly
+            console.warn(`Failed to reconnect automatically to serial port ${env.get('SERIAL_PATH')}. Exiting or relying on process manager.`);
+            process.exit(1); // Or handle more gracefully
+          }
+        }, 5000); // Example reconnect attempt delay
       }
     });
 
     this.parser.on('data', (data: string) => {
-        const trimmedData = data.trim();
-        console.log('Arduino Raw:', trimmedData); // Log raw data for debugging
+      const trimmedData = data.trim();
+      console.log('Arduino Raw:', trimmedData); // Log raw data for debugging
 
-        // --- SMS Response Handling ---
-        if (this.isSendingSms && this.currentSmsJob) {
-            // Check for specific success/failure strings from *your* Arduino code
-            if (trimmedData.includes("SMS sent successfully")) {
-                console.log('SMS success confirmed by Arduino.');
-                if (this.smsTimeoutTimer) clearTimeout(this.smsTimeoutTimer);
-                this.currentSmsJob.resolve(`SMS sent successfully to ${this.currentSmsJob.phoneNumber}`);
-                this._clearCurrentSmsState();
-                this._processSmsQueue(); // Process next item
-                return; // Don't process as JSON
-            } else if (trimmedData.includes("SMS send failed") || trimmedData.includes("ERROR: Failed to send SMS")) {
-                console.error('SMS failure confirmed by Arduino.');
-                if (this.smsTimeoutTimer) clearTimeout(this.smsTimeoutTimer);
-                this.currentSmsJob.reject(new Error(`Arduino reported SMS send failed for ${this.currentSmsJob.phoneNumber}. Response: ${trimmedData}`));
-                this._clearCurrentSmsState();
-                this._processSmsQueue(); // Process next item
-                return; // Don't process as JSON
-            }
-            // NOTE: You might also want to check for low-level SIM800L errors if your Arduino code doesn't explicitly print "SMS send failed" for all cases.
+      // --- SMS Response Handling ---
+      if (this.isSendingSms && this.currentSmsJob) {
+        // Check for specific success/failure strings from *your* Arduino code
+        if (trimmedData.includes("SMS sent successfully")) {
+          console.log('SMS success confirmed by Arduino.');
+          if (this.smsTimeoutTimer) clearTimeout(this.smsTimeoutTimer);
+          this.currentSmsJob.resolve(`SMS sent successfully to ${this.currentSmsJob.phoneNumber}`);
+          this._clearCurrentSmsState();
+          this._processSmsQueue(); // Process next item
+          return; // Don't process as JSON
+        } else if (trimmedData.includes("SMS send failed") || trimmedData.includes("ERROR: Failed to send SMS")) {
+          console.error('SMS failure confirmed by Arduino.');
+          if (this.smsTimeoutTimer) clearTimeout(this.smsTimeoutTimer);
+          this.currentSmsJob.reject(new Error(`Arduino reported SMS send failed for ${this.currentSmsJob.phoneNumber}. Response: ${trimmedData}`));
+          this._clearCurrentSmsState();
+          this._processSmsQueue(); // Process next item
+          return; // Don't process as JSON
         }
-        // --- End SMS Response Handling ---
+        // NOTE: You might also want to check for low-level SIM800L errors if your Arduino code doesn't explicitly print "SMS send failed" for all cases.
+      }
+      // --- End SMS Response Handling ---
 
 
-        // --- Sensor Data Handling ---
-        try {
-            // Attempt to parse as JSON only if it looks like JSON
-            if (trimmedData.startsWith('{') && trimmedData.endsWith('}')) {
-                const parsedData: SensorData = JSON.parse(trimmedData);
-                 // Basic validation
-                if (typeof parsedData.infrared === 'number' && typeof parsedData.weight === 'number') {
-                    this.lastSensorData = parsedData;
-                    // console.log('Received sensor data:', parsedData); // Reduce noise, log raw above
-                    this.emit('sensorData', parsedData);
-                    this.notifyCallbacks(parsedData);
-                } else {
-                     console.warn('Parsed JSON data missing expected fields:', trimmedData);
-                }
+      // --- Sensor Data Handling ---
+      try {
+        // Attempt to parse as JSON only if it looks like JSON
+        if (trimmedData.startsWith('{') && trimmedData.endsWith('}')) {
+          const parsedData: SensorData = JSON.parse(trimmedData);
+          // Basic validation
+          if (typeof parsedData.infrared === 'number' && typeof parsedData.weight === 'number') {
+            this.lastSensorData = parsedData;
+            // console.log('Received sensor data:', parsedData); // Reduce noise, log raw above
+            this.emit('sensorData', parsedData);
+            this.notifyCallbacks(parsedData);
+          } else {
+            console.warn('Parsed JSON data missing expected fields:', trimmedData);
+          }
 
-            } else {
-                // Log other non-JSON, non-SMS responses if needed for debugging
-                 if (!trimmedData.startsWith("ACK:") && // Ignore simple acknowledgements
-                     !trimmedData.startsWith("ERR:") &&
-                     !trimmedData.startsWith("Sending SMS to:") && // Ignore our own debug msgs
-                     !trimmedData.includes("AT+") && // Ignore AT command echoes
-                     !trimmedData.includes(">") && // Ignore SMS prompt
-                     trimmedData !== "OK" &&
-                     trimmedData.length > 0) // Ignore empty lines
-                 {
-                    console.log('Arduino Info:', trimmedData);
-                    const isSMSreadyReceived = trimmedData.includes('initialized in SMS text mode');
-                   if (isSMSreadyReceived) this.smsReady = true;
-                    
-                     
-                 }
+        } else {
+          // Log other non-JSON, non-SMS responses if needed for debugging
+          if (!trimmedData.startsWith("ACK:") && // Ignore simple acknowledgements
+            !trimmedData.startsWith("ERR:") &&
+            !trimmedData.startsWith("Sending SMS to:") && // Ignore our own debug msgs
+            !trimmedData.includes("AT+") && // Ignore AT command echoes
+            !trimmedData.includes(">") && // Ignore SMS prompt
+            trimmedData !== "OK" &&
+            trimmedData.length > 0) // Ignore empty lines
+          {
+            console.log('Arduino Info:', trimmedData);
+            const isSMSreadyReceived = trimmedData.includes('initialized in SMS text mode');
+
+
+            if (isSMSreadyReceived) {
+              this.smsReady = true;
+ 
             }
-        } catch (error) {
-           // Only log parse error if it looked like JSON initially
-           if (trimmedData.startsWith('{') && trimmedData.endsWith('}')) {
-              console.error('Error parsing JSON data:', trimmedData, error);
-           }
-            // Otherwise, it was likely an info message already logged or handled.
+
+
+          }
         }
-        // --- End Sensor Data Handling ---
+      } catch (error) {
+        // Only log parse error if it looked like JSON initially
+        if (trimmedData.startsWith('{') && trimmedData.endsWith('}')) {
+          console.error('Error parsing JSON data:', trimmedData, error);
+        }
+        // Otherwise, it was likely an info message already logged or handled.
+      }
+      // --- End Sensor Data Handling ---
     });
   }
 
@@ -244,10 +251,10 @@ class ArduinoInputBridge extends EventEmitter {
     this.isMockMode = true;
     this.isConnected = true; // Mock mode implies a 'virtual' connection
 
-     // Reject any pending real jobs
+    // Reject any pending real jobs
     if (this.currentSmsJob) {
-        this.currentSmsJob.reject('Entering mock mode while SMS was pending.');
-       this._clearCurrentSmsState();
+      this.currentSmsJob.reject('Entering mock mode while SMS was pending.');
+      this._clearCurrentSmsState();
     }
     this.smsQueue.forEach(job => job.reject('Entering mock mode before sending.'));
     this.smsQueue = [];
@@ -255,15 +262,15 @@ class ArduinoInputBridge extends EventEmitter {
 
     // Start generating mock sensor data
     if (!this.mockTimer) { // Avoid multiple timers
-        this.mockTimer = setInterval(() => {
-            this.lastSensorData = {
-                infrared: Math.floor(Math.random() * 1024),
-                weight: Math.floor(Math.random() * 20000)
-            };
-           // console.log('Mock sensor data:', this.lastSensorData);
-            this.emit('sensorData', this.lastSensorData);
-            this.notifyCallbacks(this.lastSensorData);
-        }, 1000);
+      this.mockTimer = setInterval(() => {
+        this.lastSensorData = {
+          infrared: Math.floor(Math.random() * 1024),
+          weight: Math.floor(Math.random() * 20000)
+        };
+        // console.log('Mock sensor data:', this.lastSensorData);
+        this.emit('sensorData', this.lastSensorData);
+        this.notifyCallbacks(this.lastSensorData);
+      }, 1000);
     }
 
     this.emit('connected', { real: false, mock: true });
@@ -277,39 +284,39 @@ class ArduinoInputBridge extends EventEmitter {
    * @returns A Promise that resolves on successful confirmation from Arduino, or rejects on failure/timeout.
    */
   public sendSms(phoneNumber: string, message: string): Promise<string> {
-      return new Promise((resolve, reject) => {
-          if (this.isMockMode) {
-              console.log(`Mock SMS: To=${phoneNumber}, Msg=${message}`);
-              // Simulate success after a short delay
-              setTimeout(() => resolve(`Mock SMS sent successfully to ${phoneNumber}`), 500);
-              return;
-          }
+    return new Promise((resolve, reject) => {
+      if (this.isMockMode) {
+        console.log(`Mock SMS: To=${phoneNumber}, Msg=${message}`);
+        // Simulate success after a short delay
+        setTimeout(() => resolve(`Mock SMS sent successfully to ${phoneNumber}`), 500);
+        return;
+      }
 
-          if (!this.isConnected || !this.port || !this.smsReady) {
-              console.error('Cannot send SMS: Not connected to Arduino, or sms not ready.');
-              reject(new Error('Not connected to Arduino'));
-              return;
-          }
+      if (!this.isConnected || !this.port || !this.smsReady) {
+        console.error('Cannot send SMS: Not connected to Arduino, or sms not ready.');
+        reject(new Error('Not connected to Arduino'));
+        return;
+      }
 
-          if (!phoneNumber || !message) {
-             reject(new Error('Phone number and message cannot be empty.'));
-             return;
-          }
+      if (!phoneNumber || !message) {
+        reject(new Error('Phone number and message cannot be empty.'));
+        return;
+      }
 
-          // Basic validation (adjust regex as needed for international numbers)
-          if (!/^\+?\d{10,}$/.test(phoneNumber)) {
-             reject(new Error(`Invalid phone number format: ${phoneNumber}`));
-             return;
-          }
+      // Basic validation (adjust regex as needed for international numbers)
+      if (!/^\+?\d{10,}$/.test(phoneNumber)) {
+        reject(new Error(`Invalid phone number format: ${phoneNumber}`));
+        return;
+      }
 
 
-          const job: SmsJob = { phoneNumber, message, resolve, reject };
-          this.smsQueue.push(job);
-          console.log(`SMS queued for ${phoneNumber}. Queue size: ${this.smsQueue.length}`);
+      const job: SmsJob = { phoneNumber, message, resolve, reject };
+      this.smsQueue.push(job);
+      console.log(`SMS queued for ${phoneNumber}. Queue size: ${this.smsQueue.length}`);
 
-          // Trigger processing immediately if nothing is currently sending
-          this._processSmsQueue();
-      });
+      // Trigger processing immediately if nothing is currently sending
+      this._processSmsQueue();
+    });
   }
 
   /** 
@@ -353,7 +360,7 @@ class ArduinoInputBridge extends EventEmitter {
         }
       });
     })
-    
+
 
   }
   // --- Private helper to process the SMS queue ---
@@ -372,58 +379,58 @@ class ArduinoInputBridge extends EventEmitter {
 
     // Start a timeout timer
     this.smsTimeoutTimer = setTimeout(() => {
-        console.error(`SMS timeout for ${this.currentSmsJob?.phoneNumber}. Arduino did not confirm within ${SMS_SEND_TIMEOUT_MS}ms.`);
-        // It's possible the Arduino *did* send it but the confirmation was lost/delayed.
-        // We assume failure from the Node.js perspective.
-        this.currentSmsJob?.reject(new Error(`SMS send timeout (${SMS_SEND_TIMEOUT_MS}ms)`));
-        this._clearCurrentSmsState();
-        // Try processing the next item after a timeout
-        this._processSmsQueue();
+      console.error(`SMS timeout for ${this.currentSmsJob?.phoneNumber}. Arduino did not confirm within ${SMS_SEND_TIMEOUT_MS}ms.`);
+      // It's possible the Arduino *did* send it but the confirmation was lost/delayed.
+      // We assume failure from the Node.js perspective.
+      this.currentSmsJob?.reject(new Error(`SMS send timeout (${SMS_SEND_TIMEOUT_MS}ms)`));
+      this._clearCurrentSmsState();
+      // Try processing the next item after a timeout
+      this._processSmsQueue();
     }, SMS_SEND_TIMEOUT_MS);
 
     // Send command to Arduino
     this.port?.write(command, (err) => {
-        if (err) {
-            console.error(`Error writing SMS command to serial port for ${this.currentSmsJob?.phoneNumber}:`, err.message);
-            if (this.smsTimeoutTimer) clearTimeout(this.smsTimeoutTimer);
-            this.currentSmsJob?.reject(new Error(`Serial write error: ${err.message}`));
-            this._clearCurrentSmsState();
-            // Don't automatically requeue, the write failed.
-            // Process the next item if any.
-            this._processSmsQueue();
-        } else {
-             console.log(`Command "${command.trim()}" sent to Arduino.`);
-        }
+      if (err) {
+        console.error(`Error writing SMS command to serial port for ${this.currentSmsJob?.phoneNumber}:`, err.message);
+        if (this.smsTimeoutTimer) clearTimeout(this.smsTimeoutTimer);
+        this.currentSmsJob?.reject(new Error(`Serial write error: ${err.message}`));
+        this._clearCurrentSmsState();
+        // Don't automatically requeue, the write failed.
+        // Process the next item if any.
+        this._processSmsQueue();
+      } else {
+        console.log(`Command "${command.trim()}" sent to Arduino.`);
+      }
     });
   }
 
-   // --- Private helper to clean up SMS state ---
-   private _clearCurrentSmsState(): void {
-       this.isSendingSms = false;
-       this.currentSmsJob = null;
-       if (this.smsTimeoutTimer) {
-           clearTimeout(this.smsTimeoutTimer);
-           this.smsTimeoutTimer = null;
-       }
-   }
+  // --- Private helper to clean up SMS state ---
+  private _clearCurrentSmsState(): void {
+    this.isSendingSms = false;
+    this.currentSmsJob = null;
+    if (this.smsTimeoutTimer) {
+      clearTimeout(this.smsTimeoutTimer);
+      this.smsTimeoutTimer = null;
+    }
+  }
 
   // --- Existing methods (setServoSpeed, etc.) ---
 
   public setServoSpeed(servoIndex: number, speed: number): boolean {
     // (Keep existing implementation, but add connection check)
     if (!this.isConnected) {
-       console.error('Cannot set servo speed: Not connected.');
-       return false;
+      console.error('Cannot set servo speed: Not connected.');
+      return false;
     }
-     if (this.isMockMode) {
-        // ... (keep mock logic) ...
-        const clampedSpeed = Math.max(-100, Math.min(100, speed));
-        const servoValue = Math.round(90 + (clampedSpeed * 0.9));
-        console.log(`Mock: Setting servo ${servoIndex} to speed ${clampedSpeed} (value: ${servoValue})`);
-        return true;
+    if (this.isMockMode) {
+      // ... (keep mock logic) ...
+      const clampedSpeed = Math.max(-100, Math.min(100, speed));
+      const servoValue = Math.round(90 + (clampedSpeed * 0.9));
+      console.log(`Mock: Setting servo ${servoIndex} to speed ${clampedSpeed} (value: ${servoValue})`);
+      return true;
     }
 
-    if (servoIndex < 1 || servoIndex > 4) { /* ... error ... */ return false;}
+    if (servoIndex < 1 || servoIndex > 4) { /* ... error ... */ return false; }
     const clampedSpeed = Math.max(-100, Math.min(100, speed));
     const servoValue = Math.round(90 + (clampedSpeed * 0.9));
     this.servoPositions[servoIndex - 1] = servoValue;
@@ -439,14 +446,14 @@ class ArduinoInputBridge extends EventEmitter {
   }
 
   public setAllServoSpeeds(speeds: number[]): boolean {
-     // (Keep existing implementation)
-     if (speeds.length !== 4) { /* ... error ... */ return false; }
-     let success = true;
-     for (let i = 0; i < 4; i++) {
-       const result = this.setServoSpeed(i + 1, speeds[i]);
-       success = success && result;
-     }
-     return success;
+    // (Keep existing implementation)
+    if (speeds.length !== 4) { /* ... error ... */ return false; }
+    let success = true;
+    for (let i = 0; i < 4; i++) {
+      const result = this.setServoSpeed(i + 1, speeds[i]);
+      success = success && result;
+    }
+    return success;
   }
 
   public getSensorData(): SensorData {
@@ -458,18 +465,18 @@ class ArduinoInputBridge extends EventEmitter {
   }
 
   public forceMockMode(): void {
-      if (this.isMockMode) {
-          console.log('Already in mock mode');
-          return;
-      }
-      console.log('Forcing mock mode...');
-      this.close().then(() => {
-          this.enterMockMode();
-      }).catch(err => {
-          console.error('Error closing connection before forcing mock mode:', err);
-          // Attempt to enter mock mode anyway
-          this.enterMockMode();
-      });
+    if (this.isMockMode) {
+      console.log('Already in mock mode');
+      return;
+    }
+    console.log('Forcing mock mode...');
+    this.close().then(() => {
+      this.enterMockMode();
+    }).catch(err => {
+      console.error('Error closing connection before forcing mock mode:', err);
+      // Attempt to enter mock mode anyway
+      this.enterMockMode();
+    });
   }
 
 
@@ -481,21 +488,21 @@ class ArduinoInputBridge extends EventEmitter {
         this.mockTimer = null;
       }
 
-       // Reject pending/current SMS jobs on close
-       if (this.currentSmsJob) {
-           this.currentSmsJob.reject('Connection closed by application.');
-           this._clearCurrentSmsState();
-       }
-       this.smsQueue.forEach(job => job.reject('Connection closed by application before sending.'));
-       this.smsQueue = [];
+      // Reject pending/current SMS jobs on close
+      if (this.currentSmsJob) {
+        this.currentSmsJob.reject('Connection closed by application.');
+        this._clearCurrentSmsState();
+      }
+      this.smsQueue.forEach(job => job.reject('Connection closed by application before sending.'));
+      this.smsQueue = [];
 
 
       if (!this.port || !this.port.isOpen || this.isMockMode) {
-          console.log("Port already closed or in mock mode.");
-          this.isConnected = false;
-          this.isMockMode = false; // Ensure mock mode is off if we are explicitly closing
-          resolve();
-          return;
+        console.log("Port already closed or in mock mode.");
+        this.isConnected = false;
+        this.isMockMode = false; // Ensure mock mode is off if we are explicitly closing
+        resolve();
+        return;
       }
 
       // Important: Remove listeners before closing to prevent errors/reconnect attempts
