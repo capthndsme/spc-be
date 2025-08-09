@@ -4,23 +4,34 @@ import gpiox from "@iiot2k/gpiox"; // Assuming this library handles GPIO interac
 class GPIOService {
   booted: boolean = false;
   inputBlocking: boolean = false; // Note: Still unused in this snippet
-  magnetState: boolean = false; // true = magnet detected (closed), false = magnet not detected (open)
+  magnetStates: boolean[] = [false, false, false, false]; // true = magnet detected (closed), false = magnet not detected (open)
   readonly isPi: boolean = env.get('IS_PI');
 
-  #magnetStateCallbacks: ((state: boolean) => void)[] = [];
+  #magnetStateCallbacks: ((states: boolean[]) => void)[] = [];
 
-  registerMagnetStateCallback(callback: (state: boolean) => void): void {
+  // --- State for relock sequences ---
+  #relockStates = Array(4).fill(null).map(() => ({
+    isWaiting: false,
+    timeout: null as NodeJS.Timeout | null,
+    onRelock: null as (() => void) | null,
+    onExpired: null as (() => void) | null,
+    waitingForOpen: true,
+  }));
+  #isMasterRelockCallbackRegistered = false;
+  // ---
+
+  registerMagnetStateCallback(callback: (states: boolean[]) => void): void {
     this.#magnetStateCallbacks.push(callback);
   }
 
-  unregisterMagnetStateCallback(callback: (state: boolean) => void): void {
+  unregisterMagnetStateCallback(callback: (states: boolean[]) => void): void {
     this.#magnetStateCallbacks = this.#magnetStateCallbacks.filter(cb => cb !== callback);
   }
 
-  notifyMagnetStateCallbacks(state: boolean): void {
+  notifyMagnetStateCallbacks(states: boolean[]): void {
     this.#magnetStateCallbacks.forEach(callback => {
       try {
-        callback(state);
+        callback(states);
       } catch (error) {
         console.error("Error executing magnet state callback:", error);
       }
@@ -30,14 +41,11 @@ class GPIOService {
   map = {
     output: {
       // Assuming HIGH/true = Locked, LOW/false = Unlocked.
-      SolenoidLock: 17,
+      SolenoidLock: [17, 22, 23, 24], // Using common available GPIO pins
     },
     input: {
-      // Assuming Pull-up: HIGH/true = open circuit (magnet far/absent), LOW/false = closed circuit (magnet near/present)
-      // *** Therefore, magnetState == false means magnet DETECTED (closed) ***
-      // *** Let's adjust the logic and comments to reflect this standard pull-up behavior ***
-      // If using PULLDOWN, the logic would be reversed.
-      MagnetDetection: 27,
+      // Assuming Pull-up: HIGH/true = open circuit (magnet far), LOW/false = closed circuit (magnet near)
+      MagnetDetection: [27, 5, 6, 13], // Using common available GPIO pins
     }
   }
 
@@ -51,31 +59,37 @@ class GPIOService {
 
     if (this.isPi) {
       try {
-        // Initialize MagnetDetection pin as input with pull-up resistor
-        // Reads HIGH (true) when open circuit (magnet far).
-        // Reads LOW (false) when closed circuit (magnet near).
-        gpiox.init_gpio(this.map.input.MagnetDetection, gpiox.GPIO_MODE_INPUT_PULLUP, false);
-        // Read initial state. Remember: false means magnet detected (closed).
-        this.magnetState = gpiox.get_gpio(this.map.input.MagnetDetection); // Invert reading for intuitive state (true = closed/detected)
-        console.log(`Initial Magnet state: ${this.magnetState ? 'detected (closed)' : 'not detected (open)'}`);
-        this.notifyMagnetStateCallbacks(this.magnetState); // Notify initial state
+        // Initialize MagnetDetection pins as inputs with pull-up resistors
+        this.map.input.MagnetDetection.forEach((pin, index) => {
+          gpiox.init_gpio(pin, gpiox.GPIO_MODE_INPUT_PULLUP, false);
+          this.magnetStates[index] = gpiox.get_gpio(pin);
+          console.log(`Initial Magnet state for sensor ${index + 1} (pin ${pin}): ${this.magnetStates[index] ? 'detected (closed)' : 'not detected (open)'}`);
+        });
+        this.notifyMagnetStateCallbacks(this.magnetStates);
 
-
-        // Initialize SolenoidLock pin as output.
-        // Assuming HIGH/true = Locked state, LOW/false = Unlocked state.
-        gpiox.init_gpio(this.map.output.SolenoidLock, gpiox.GPIO_MODE_OUTPUT, true); // Start in locked state
+        // Initialize SolenoidLock pins as outputs
+        this.map.output.SolenoidLock.forEach((pin, index) => {
+          gpiox.init_gpio(pin, gpiox.GPIO_MODE_OUTPUT, true); // Start in locked state
+          console.log(`Initialized SolenoidLock ${index + 1} (pin ${pin})`);
+        });
         console.log("GPIO pins initialized.");
 
         // Start polling loop to detect magnet state changes
         setInterval(() => {
-          // Remember: GPIO read is true for open circuit (magnet far), false for closed (magnet near)
-          const rawGpioState = gpiox.get_gpio(this.map.input.MagnetDetection);
-          const currentState = rawGpioState; // Invert for intuitive state (true = closed/detected)
+          const newStates = [...this.magnetStates];
+          let changed = false;
+          this.map.input.MagnetDetection.forEach((pin, index) => {
+            const rawGpioState = gpiox.get_gpio(pin);
+            if (rawGpioState !== newStates[index]) {
+              console.log(`Magnet state for sensor ${index + 1} (pin ${pin}) changed to ${rawGpioState ? 'detected (closed)' : 'not detected (open)'}`);
+              newStates[index] = rawGpioState;
+              changed = true;
+            }
+          });
 
-          if (currentState !== this.magnetState) {
-            console.log(`Magnet state changed to ${currentState ? 'detected (closed)' : 'not detected (open)'}`);
-            this.magnetState = currentState;
-            this.notifyMagnetStateCallbacks(this.magnetState);
+          if (changed) {
+            this.magnetStates = newStates;
+            this.notifyMagnetStateCallbacks(this.magnetStates);
           }
         }, 100); // Check every 100ms
 
@@ -86,184 +100,178 @@ class GPIOService {
     } else {
       console.log("Not running on Pi environment. GPIO functionality disabled.");
       // Simulate initial state for testing off-Pi if needed
-      this.magnetState = true; // Assume closed initially for simulation
-      this.notifyMagnetStateCallbacks(this.magnetState);
+      this.magnetStates = [true, true, true, true]; // Assume closed initially for simulation
+      this.notifyMagnetStateCallbacks(this.magnetStates);
     }
     console.log("GPIO service boot sequence complete.");
   }
 
   /**
-   * Sets the state of the Solenoid Lock.
+   * Sets the state of a specific Solenoid Lock.
+   * @param lockIndex - The index of the lock (0-3).
    * @param lock - true to lock, false to unlock.
    */
-  writeLockState(lock: boolean): void {
-    if (!this.booted || !this.isPi) {
-      console.warn(`GPIO service not ready. Cannot set lock state to ${lock}.`);
-      // Simulate state change if needed for testing off-Pi
-      // For example: this.simulatedLockState = lock;
+  writeLockState(lockIndex: number, lock: boolean): void {
+    if (lockIndex < 0 || lockIndex >= this.map.output.SolenoidLock.length) {
+      console.error(`Invalid lock index: ${lockIndex}`);
       return;
     }
-    console.log(`Setting SolenoidLock (GPIO ${this.map.output.SolenoidLock}) to ${lock ? 'Locked' : 'Unlocked'}`);
+
+    if (!this.booted || !this.isPi) {
+      console.warn(`GPIO service not ready. Simulating set lock ${lockIndex + 1} state to ${lock}.`);
+      return;
+    }
+
+    const pin = this.map.output.SolenoidLock[lockIndex];
+    console.log(`Setting SolenoidLock ${lockIndex + 1} (GPIO ${pin}) to ${lock ? 'Locked' : 'Unlocked'}`);
     try {
-      // Assuming true = Locked, false = Unlocked matches the hardware needs
-      gpiox.set_gpio(this.map.output.SolenoidLock, lock);
+      gpiox.set_gpio(pin, lock);
     } catch (error) {
-      console.error("Failed to set GPIO state for SolenoidLock:", error);
+      console.error(`Failed to set GPIO state for SolenoidLock ${lockIndex + 1}:`, error);
     }
   }
 
-  #isWaitingForRelock = false;
-  #relockTimeout: NodeJS.Timeout | null = null;
-  #relockSequenceCallback: ((state: boolean) => void) | null = null;
+  private _registerMasterRelockCallback() {
+    if (this.#isMasterRelockCallbackRegistered) return;
+
+    const masterCallback = (states: boolean[]) => {
+      this.#relockStates.forEach((state, index) => {
+        if (!state.isWaiting) return;
+
+        const currentState = states[index];
+        console.log(`Sequence Callback for lock ${index + 1}: Current magnet state: ${currentState ? 'detected (closed)' : 'not detected (open)'}, Waiting for open: ${state.waitingForOpen}`);
+
+        if (state.waitingForOpen && currentState === false) {
+          console.log(`Sequence Callback for lock ${index + 1}: Magnet NOT detected (opened). Now waiting for close.`);
+          state.waitingForOpen = false;
+        } else if (!state.waitingForOpen && currentState === true) {
+          console.log(`Sequence Callback for lock ${index + 1}: Magnet DETECTED (closed/relocked). Sequence complete.`);
+          console.log(`Re-locking solenoid ${index + 1}...`);
+          this.writeLockState(index, true);
+
+          if (state.timeout) clearTimeout(state.timeout);
+
+          const onRelockCb = state.onRelock;
+
+          // Reset state before calling back
+          state.isWaiting = false;
+          state.onRelock = null;
+          state.onExpired = null;
+          state.timeout = null;
+          state.waitingForOpen = true;
+
+          if (onRelockCb) {
+            try {
+              console.log(`Executing onRelock callback for lock ${index + 1}.`);
+              onRelockCb();
+            } catch (error) {
+              console.error(`Error executing onRelock callback for lock ${index + 1}:`, error);
+            }
+          }
+        }
+      });
+    };
+
+    this.registerMagnetStateCallback(masterCallback);
+    this.#isMasterRelockCallbackRegistered = true;
+  }
 
   /**
-   * Attempts to unlock the Solenoid Lock, waits for the magnet sensor to indicate
-   * the lock mechanism has been physically opened (magnet not detected) and then
-   * physically closed again (magnet detected), then re-locks the solenoid
-   * and calls the provided callback function.
+   * Attempts to unlock a Solenoid Lock, waits for the corresponding magnet sensor to indicate
+   * the lock has been physically opened and then closed again, then re-locks the solenoid.
    *
-   * Precondition: The magnet must be detected (indicating closed state) before starting.
-   *
-   * Assumptions (based on PULLUP resistor for input & standard lock):
-   * - `writeLockState(false)` unlocks the solenoid.
-   * - `writeLockState(true)` locks the solenoid.
-   * - `this.magnetState == false` means magnet is *not detected* (e.g., door open).
-   * - `this.magnetState == true` means magnet is *detected* (e.g., door closed/aligned).
-   *
+   * @param lockIndex - The index of the lock (0-3) to operate.
    * @param onRelock - Callback executed *after* the sequence completes and the lock is re-engaged.
-   * @param onExpired - Callback executed if the sequence times out or cannot start (e.g., already open). The lock will be left *unlocked* in case of timeout.
-   * @param timeoutDurationMs - Duration in milliseconds to wait for the sequence. Defaults to 30000 (30 seconds).
+   * @param onExpired - Callback executed if the sequence times out or cannot start.
+   * @param timeoutDurationMs - Duration in milliseconds to wait for the sequence. Defaults to 40000.
    */
   public unlockAndWaitForRelock(
+    lockIndex: number,
     onRelock: () => void,
     onExpired?: () => void,
     timeoutDurationMs: number = 40000
   ): void {
-    // 1. Pre-checks
+    if (lockIndex < 0 || lockIndex >= 4) {
+      console.error(`Invalid lock index: ${lockIndex}`);
+      onExpired?.();
+      return;
+    }
+
     if (!this.booted) {
       console.warn("GPIO service not booted. Cannot perform unlock sequence.");
-      if (onExpired) onExpired(); // Notify caller about failure
-      return;
-    }
-     if (!this.isPi) {
-        console.warn("Not on Pi. Simulating unlock sequence for testing.");
-        // Basic simulation: unlock, wait, assume success, relock.
-        this.writeLockState(false); // Simulate unlock
-        setTimeout(() => {
-            console.log("Simulated open->close sequence complete.");
-            this.writeLockState(true); // Simulate relock
-            onRelock();
-        }, 1000); // Short delay for simulation
-        return;
-    }
-    if (this.#isWaitingForRelock) {
-      console.warn("Already waiting for a relock sequence. Ignoring new request.");
-      // Do not call onExpired here, as the *previous* sequence is still active or timed out.
-      return;
-    }
-    // **** Issue 1: Check Initial State ****
-    if (this.magnetState === false) {
-      console.warn("Cannot start unlock sequence: Magnet not detected (already open?). Please ensure it is closed first.");
-      if (onExpired) onExpired(); // Use onExpired to signal failure to start
+      onExpired?.();
       return;
     }
 
-    console.log("Starting unlock and wait for relock sequence...");
-    this.#isWaitingForRelock = true;
-
-    // Cleanup previous potential stray listeners/timeouts (belt-and-suspenders)
-    if (this.#relockSequenceCallback) {
-       this.unregisterMagnetStateCallback(this.#relockSequenceCallback);
-       this.#relockSequenceCallback = null;
-    }
-    if (this.#relockTimeout) {
-        clearTimeout(this.#relockTimeout);
-        this.#relockTimeout = null;
+    if (!this.isPi) {
+      console.warn(`Not on Pi. Simulating unlock sequence for lock ${lockIndex + 1}.`);
+      this.writeLockState(lockIndex, false);
+      setTimeout(() => {
+        console.log(`Simulated open->close sequence complete for lock ${lockIndex + 1}.`);
+        this.writeLockState(lockIndex, true);
+        onRelock();
+      }, 1000);
+      return;
     }
 
+    const state = this.#relockStates[lockIndex];
 
-    // 2. Define the state-tracking callback
-    let waitingForOpen = true; // State variable: initially, we wait for 'false' (open)
-    this.#relockSequenceCallback = (currentState: boolean) => {
-      // If no longer waiting (e.g., timeout occurred), do nothing.
-      if (!this.#isWaitingForRelock) return;
+    if (state.isWaiting) {
+      console.warn(`Already waiting for a relock sequence on lock ${lockIndex + 1}. Ignoring new request.`);
+      return;
+    }
 
-      console.log(`Sequence Callback: Current magnet state: ${currentState ? 'detected (closed)' : 'not detected (open)'}, Waiting for open: ${waitingForOpen}`);
+    if (this.magnetStates[lockIndex] === false) {
+      console.warn(`Cannot start unlock sequence for lock ${lockIndex + 1}: Magnet not detected (already open?).`);
+      onExpired?.();
+      return;
+    }
 
-      if (waitingForOpen && currentState === false) {
-        // Detected the 'open' state (magnet not detected)
-        console.log("Sequence Callback: Magnet NOT detected (opened). Now waiting for close.");
-        waitingForOpen = false; // Transition state: now wait for 'true' (closed)
-      } else if (!waitingForOpen && currentState === true) {
-        // Detected the 'close' state (magnet detected) AFTER the 'open' state
-        console.log("Sequence Callback: Magnet DETECTED (closed/relocked). Sequence complete.");
+    console.log(`Starting unlock and wait for relock sequence for lock ${lockIndex + 1}...`);
 
-        // --- Issue 2: Re-lock the solenoid ---
-        console.log("Re-locking the solenoid...");
-        this.writeLockState(true); // Command the lock to engage
+    this._registerMasterRelockCallback();
 
-        // Cleanup before calling user callback
-        if (this.#relockTimeout) clearTimeout(this.#relockTimeout);
-        this.#relockTimeout = null;
-        if (this.#relockSequenceCallback) this.unregisterMagnetStateCallback(this.#relockSequenceCallback);
-        this.#relockSequenceCallback = null;
-        this.#isWaitingForRelock = false; // Reset the flag *after* cleanup
+    state.isWaiting = true;
+    state.onRelock = onRelock;
+    if (onExpired) state.onExpired = onExpired;
+    state.waitingForOpen = true;
 
-        // Execute the user's success callback
-        try {
-          console.log("Executing the onRelock callback.");
-          onRelock();
-        } catch (error) {
-          console.error("Error executing onRelock callback:", error);
-        }
-      }
-      // If currentState doesn't match the expected sequence step, do nothing and wait.
-    };
+    state.timeout = setTimeout(() => {
+      if (state.isWaiting) {
+        console.warn(`Relock sequence for lock ${lockIndex + 1} timed out after ${timeoutDurationMs}ms.`);
 
-    // 3. Register the tracking callback
-    this.registerMagnetStateCallback(this.#relockSequenceCallback);
+        const onExpiredCb = state.onExpired;
 
-    // 4. Set up Timeout
-    this.#relockTimeout = setTimeout(() => {
-      // Check if the sequence is still waiting when timeout hits
-      if (this.#isWaitingForRelock) {
-        console.warn(`Relock sequence timed out after ${timeoutDurationMs}ms.`);
+        // Reset state
+        state.isWaiting = false;
+        state.onRelock = null;
+        state.onExpired = null;
+        state.timeout = null;
+        state.waitingForOpen = true;
 
-        // --- Issue 3: Timeout Behavior ---
-        // DO NOT re-lock here. The lock was left unlocked by writeLockState(false) below.
-
-        // Cleanup
-        if (this.#relockSequenceCallback) this.unregisterMagnetStateCallback(this.#relockSequenceCallback);
-        this.#relockSequenceCallback = null;
-        this.#isWaitingForRelock = false; // Reset the flag
-
-        // Notify the caller about the timeout
-        if (onExpired) {
+        if (onExpiredCb) {
           try {
-            onExpired();
+            onExpiredCb();
           } catch (error) {
-            console.error("Error executing onExpired callback:", error);
+            console.error(`Error executing onExpired callback for lock ${lockIndex + 1}:`, error);
           }
         }
       }
-       this.#relockTimeout = null; // Clear timeout reference
     }, timeoutDurationMs);
 
-    // 5. Unlock the solenoid ONLY AFTER setting up listener and timeout
-    // This prevents race conditions where the state changes before the listener is ready.
-    this.writeLockState(false); // Send unlock command
-
-    console.log(`Unlock command sent. Waiting for open (magnet false) -> close (magnet true). Timeout in ${timeoutDurationMs}ms.`);
+    this.writeLockState(lockIndex, false);
+    console.log(`Unlock command sent for lock ${lockIndex + 1}. Waiting for open -> close. Timeout in ${timeoutDurationMs}ms.`);
   }
 
-  // Helper to get current magnet state if needed externally
-  public getCurrentMagnetState(): boolean {
-    return this.magnetState;
+  // Helper to get current magnet states if needed externally
+  public getCurrentMagnetStates(): boolean[] {
+    return [...this.magnetStates];
   }
 
-  // Helper to check if waiting
-  public isWaiting(): boolean {
-      return this.#isWaitingForRelock;
+  // Helper to check if a specific lock is in a waiting sequence
+  public isWaiting(lockIndex: number): boolean {
+    if (lockIndex < 0 || lockIndex >= 4) return false;
+    return this.#relockStates[lockIndex].isWaiting;
   }
 }
 

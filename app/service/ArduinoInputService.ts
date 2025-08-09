@@ -7,8 +7,8 @@ import { exec } from 'child_process';
 // --- Types ---
 type SensorData = {
   infrared: number;
-  /** Float */
-  weight: number
+  /** An array of 4 weight sensor floats */
+  weights: number[];
 };
 
 type SensorDataCallback = (data: SensorData) => void;
@@ -30,7 +30,7 @@ class ArduinoInputBridge extends EventEmitter {
   private parser: ReadlineParser | null = null;
   private isConnected: boolean = false;
   private isMockMode: boolean = false;
-  private lastSensorData: SensorData = { infrared: 0, weight: 0 };
+  private lastSensorData: SensorData = { infrared: 0, weights: [0, 0, 0, 0] };
   private servoPositions: number[] = [90, 90, 90, 90];
   private mockTimer: NodeJS.Timeout | null = null;
   private callbacks: SensorDataCallback[] = [];
@@ -164,7 +164,7 @@ class ArduinoInputBridge extends EventEmitter {
         // Implement reconnection logic here if needed, or rely on external process manager
         setTimeout(() => {
           if (!this.isConnected) { // Check again in case it reconnected quickly
-            console.warn(`Failed to reconnect automatically to serial port ${env.get('SERIAL_PATH')}. Exiting or relying on process manager.`);
+            console.warn(`Failed to reconnect to serial port ${env.get('SERIAL_PATH')}. Exiting or relying on process manager.`);
             process.exit(1); // Or handle more gracefully
           }
         }, 5000); // Example reconnect attempt delay
@@ -207,7 +207,7 @@ class ArduinoInputBridge extends EventEmitter {
         if (trimmedData.startsWith('{') && trimmedData.endsWith('}')) {
           const parsedData: SensorData = JSON.parse(trimmedData);
           // Basic validation
-          if (typeof parsedData.infrared === 'number' && typeof parsedData.weight === 'number') {
+          if (typeof parsedData.infrared === 'number' && Array.isArray(parsedData.weights) && parsedData.weights.every(w => typeof w === 'number')) {
             this.lastSensorData = parsedData;
             // console.log('Received sensor data:', parsedData); // Reduce noise, log raw above
             this.emit('sensorData', parsedData);
@@ -270,7 +270,12 @@ class ArduinoInputBridge extends EventEmitter {
       this.mockTimer = setInterval(() => {
         this.lastSensorData = {
           infrared: Math.floor(Math.random() * 1024),
-          weight: Math.floor(Math.random() * 20000)
+          weights: [
+            Math.random() * 2000,
+            Math.random() * 2000,
+            Math.random() * 2000,
+            Math.random() * 2000,
+          ]
         };
         // console.log('Mock sensor data:', this.lastSensorData);
         this.emit('sensorData', this.lastSensorData);
@@ -325,18 +330,15 @@ class ArduinoInputBridge extends EventEmitter {
   }
 
   /** 
-   * Tare function. Tares the arduino, 
-   * by sending "TARE" to console, and awaits the
-   * ACK:TARE acknowledgement packet.
+   * Tares a specific scale or all scales.
+   * @param sensor The sensor index (1-4) or 'ALL'.
+   * @returns A promise that resolves on success or rejects on failure/timeout.
   */
-
-  async tare() {
-
+  async tare(sensor: number | 'ALL'): Promise<string> {
     return new Promise((resolve, reject) => {
       if (this.isMockMode) {
-        console.log(`Mock TARE`);
-        // Simulate success after a short delay
-        setTimeout(() => resolve(`Mock TARE success`), 500);
+        console.log(`Mock TARE for sensor: ${sensor}`);
+        setTimeout(() => resolve(`Mock TARE success for ${sensor}`), 500);
         return;
       }
 
@@ -345,29 +347,154 @@ class ArduinoInputBridge extends EventEmitter {
         reject(new Error('Not connected to Arduino'));
         return;
       }
-      const command = `TARE\n`;
+
+      if (typeof sensor !== 'string' && (sensor < 1 || sensor > 4)) {
+        reject(new Error('Sensor index must be between 1 and 4 or "ALL".'));
+        return;
+      }
+
+      const command = `TARE:${sensor}\n`;
       this.port?.write(command, (err) => {
         if (err) {
           console.error('Error writing TARE command to serial port:', err.message);
           reject(err);
         } else {
           console.log(`Command "${command.trim()}" sent to Arduino.`);
-          this.parser?.once('data', (data: string) => {
+          const timeout = setTimeout(() => {
+            this.parser?.removeListener('data', listener);
+            reject(new Error(`Arduino did not acknowledge TARE for ${sensor} within 5s.`));
+          }, 5000);
+
+          const listener = (data: string) => {
             const trimmedData = data.trim();
-            if (trimmedData.includes("ACK:TARE") || trimmedData.includes("Received command: TARE")) {
-              console.log('TARE success confirmed by Arduino.');
-              resolve("TARE success");
-            } else {
-              console.error('TARE failure confirmed by Arduino.');
-              reject(new Error(`Arduino reported TARE failed. Response: ${trimmedData}`));
+            const expectedAck = `ACK:TARE:${sensor}`;
+            if (trimmedData.includes(expectedAck)) {
+              console.log(`TARE success for ${sensor} confirmed by Arduino.`);
+              clearTimeout(timeout);
+              this.parser?.removeListener('data', listener);
+              resolve(`TARE success for ${sensor}`);
             }
-          })
+          };
+          this.parser?.on('data', listener);
         }
       });
     })
 
 
   }
+  /**
+   * Sets the calibration factor for a specific sensor.
+   * @param sensorIndex The sensor index (1-4).
+   * @param value The calibration value (float).
+   * @returns A promise that resolves on success.
+   */
+  async setCalibration(sensorIndex: number, value: number): Promise<string> {
+    return new Promise((resolve, reject) => {
+      if (this.isMockMode) {
+        console.log(`Mock CAL: Sensor ${sensorIndex} to ${value}`);
+        setTimeout(() => resolve(`Mock CAL success for sensor ${sensorIndex}`), 500);
+        return;
+      }
+
+      if (!this.isConnected || !this.port) {
+        console.error('Cannot CAL: Not connected to Arduino.');
+        reject(new Error('Not connected to Arduino'));
+        return;
+      }
+
+      if (sensorIndex < 1 || sensorIndex > 4) {
+        reject(new Error('Sensor index must be between 1 and 4.'));
+        return;
+      }
+
+      const command = `CAL:${sensorIndex}:${value}\n`;
+      this.port?.write(command, (err) => {
+        if (err) {
+          console.error('Error writing CAL command to serial port:', err.message);
+          reject(err);
+        } else {
+          console.log(`Command "${command.trim()}" sent to Arduino.`);
+          const timeout = setTimeout(() => {
+            this.parser?.removeListener('data', listener);
+            reject(new Error('Arduino did not acknowledge CAL within 5s.'));
+          }, 5000);
+
+          const listener = (data: string) => {
+            const trimmedData = data.trim();
+            if (trimmedData.includes(`ACK:CAL:${sensorIndex}`)) {
+              console.log(`CAL success for sensor ${sensorIndex} confirmed by Arduino.`);
+              clearTimeout(timeout);
+              this.parser?.removeListener('data', listener);
+              resolve(`CAL success for sensor ${sensorIndex}`);
+            }
+          };
+          this.parser?.on('data', listener);
+        }
+      });
+    });
+  }
+
+  /**
+   * Gets the calibration factor for a specific sensor.
+   * @param sensorIndex The sensor index (1-4).
+   * @returns A promise that resolves with the calibration value.
+   */
+  async getCalibration(sensorIndex: number): Promise<number> {
+    return new Promise((resolve, reject) => {
+      if (this.isMockMode) {
+        const mockValue = 123.45;
+        console.log(`Mock GETCAL: Sensor ${sensorIndex}, returning ${mockValue}`);
+        setTimeout(() => resolve(mockValue), 500);
+        return;
+      }
+
+      if (!this.isConnected || !this.port) {
+        console.error('Cannot GETCAL: Not connected to Arduino.');
+        reject(new Error('Not connected to Arduino'));
+        return;
+      }
+
+      if (sensorIndex < 1 || sensorIndex > 4) {
+        reject(new Error('Sensor index must be between 1 and 4.'));
+        return;
+      }
+
+      const command = `GETCAL:${sensorIndex}\n`;
+      this.port?.write(command, (err) => {
+        if (err) {
+          console.error('Error writing GETCAL command to serial port:', err.message);
+          reject(err);
+        } else {
+          console.log(`Command "${command.trim()}" sent to Arduino.`);
+          const timeout = setTimeout(() => {
+            this.parser?.removeListener('data', listener);
+            reject(new Error('Arduino did not respond to GETCAL within 5s.'));
+          }, 5000);
+
+          const listener = (data: string) => {
+            const trimmedData = data.trim();
+            // Assuming response format is "GETCAL:1:123.45"
+            const prefix = `GETCAL:${sensorIndex}:`;
+            if (trimmedData.startsWith(prefix)) {
+              const valueStr = trimmedData.substring(prefix.length);
+              const value = parseFloat(valueStr);
+              if (!isNaN(value)) {
+                console.log(`GETCAL success for sensor ${sensorIndex}, value: ${value}`);
+                clearTimeout(timeout);
+                this.parser?.removeListener('data', listener);
+                resolve(value);
+              } else {
+                // Don't reject, wait for timeout in case of fragmented message
+                console.error(`Failed to parse GETCAL response: ${trimmedData}`);
+              }
+            }
+          };
+          this.parser?.on('data', listener);
+        }
+      });
+    });
+  }
+
   // --- Private helper to process the SMS queue ---
   private _processSmsQueue(): void {
     // Don't process if in mock mode, already sending, not connected, or queue is empty
@@ -440,7 +567,7 @@ class ArduinoInputBridge extends EventEmitter {
     const servoValue = Math.round(90 + (clampedSpeed * 0.9));
     this.servoPositions[servoIndex - 1] = servoValue;
 
-    const command = `S${servoIndex}:${servoValue}\n`;
+    const command = `S:${servoIndex}:${servoValue}\n`;
     this.port?.write(command, (err) => {
       if (err) {
         console.error('Error writing servo command to serial port:', err.message);
