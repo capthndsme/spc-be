@@ -3,6 +3,7 @@ import GPIOService from '../service/GPIOService.js'
 import OrderingService from '../service/OrderingService.js';
 import { StatusResponse } from '../response/StatusResponse.js';
 import { Status } from '../enums/Status.js';
+import LogService from '../service/LogService.js';
 
 export default class InternalsController {
   /**
@@ -81,8 +82,19 @@ export default class InternalsController {
    * triggers finish order
    */
   async finishOrder({ request }: HttpContext) {
-    const { orderId } = request.body();
-    const data = await OrderingService.finishOrder(orderId);
+    const { orderId,
+
+      initialWeight, 
+      finalWeight
+    } = request.body();
+    const data = await OrderingService.finishOrder(orderId, initialWeight, finalWeight);
+    return StatusResponse(data, Status.GENERIC_SUCCESS, false);
+  }
+  
+
+  async getLog({ request }: HttpContext) {
+    const { beforeId, afterId, limit } = request.qs();
+    const data = await LogService.getLogs(beforeId, afterId, limit);
     return StatusResponse(data, Status.GENERIC_SUCCESS, false);
   }
   

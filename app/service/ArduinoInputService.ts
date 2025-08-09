@@ -35,6 +35,8 @@ class ArduinoInputBridge extends EventEmitter {
   private mockTimer: NodeJS.Timeout | null = null;
   private callbacks: SensorDataCallback[] = [];
 
+  pingReady = false;
+
   // --- SMS Queue related properties ---
   private smsQueue: SmsJob[] = [];
   private isSendingSms: boolean = false;
@@ -172,7 +174,10 @@ class ArduinoInputBridge extends EventEmitter {
     this.parser.on('data', (data: string) => {
       const trimmedData = data.trim();
       console.log('Arduino Raw:', trimmedData); // Log raw data for debugging
-
+      if (trimmedData.toLowerCase().includes("arduino ready")) {
+        this.pingReady = true;
+        
+      }
       // --- SMS Response Handling ---
       if (this.isSendingSms && this.currentSmsJob) {
         // Check for specific success/failure strings from *your* Arduino code

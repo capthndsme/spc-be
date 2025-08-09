@@ -3,8 +3,9 @@ import Slot from "#models/slot";
 import { DateTime } from "luxon";
 
 import SMSService from "./SMSService.js";
- 
+
 import ArduinoInputService from "./ArduinoInputService.js";
+import LogService from "./LogService.js";
 
 class OrderingService {
 
@@ -22,9 +23,15 @@ class OrderingService {
 
 
   async findOrderByParcelId(pid: string) {
+    await LogService.createLogRecord(
+      "ATTEMPT_ORDER_ID",
+      `Attempted to find order id ${pid} by rider`
+
+    )
+
     return await Order.query()
       .preload('slot')
-      .whereLike('orderId', `%${pid}%`)
+      .where('orderId', pid)
       .first() || null
   }
 
@@ -38,7 +45,15 @@ class OrderingService {
     const order = await Order.query()
       .where('id', orderId)
       .first()
-    if (!order) return false;
+
+    if (!order) {
+      await LogService.createLogRecord(
+        "ATTEMPT_ORDER_ID",
+        `Attempted to enter order id ${orderId}`
+
+      )
+      return false
+    };
     // 2. generate OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     // set phone number
@@ -53,7 +68,11 @@ class OrderingService {
     // 4. send OTP
     await SMSService.sendSMS(`Your OTP for SmartParcel app is ${otp}`, riderNumber)
     // 5. return true
+    await LogService.createLogRecord(
+      "ATTEMPT_ORDER_ID",
+      `Found order ${orderId} and generated OTP!`
 
+    )
     return true;
 
   }
@@ -70,7 +89,11 @@ class OrderingService {
       .where('id', orderId)
       .first()
     if (!order) return false;
+    await LogService.createLogRecord(
+      "ATTEMPT_ENTER_OTP",
+      `OTP entered for order ${orderId} : Valid? ${otp === order.otpRider}. `
 
+    )
     // 2. validate OTP
     if (order.otpRider !== otp) return false;
 
@@ -126,9 +149,9 @@ class OrderingService {
 
       // Check if PAID orders can be bound (your original check)
       if ((orderInfo.type ?? order.type) === "PAID") {
-          // Allow binding PAID if needed, or keep the restriction
-          console.warn("Binding a PAID order to a slot."); // Or throw error if strict
-          // throw new Error("Cannot bind PAID orders to a slot.");
+        // Allow binding PAID if needed, or keep the restriction
+        console.warn("Binding a PAID order to a slot."); // Or throw error if strict
+        // throw new Error("Cannot bind PAID orders to a slot.");
       }
 
 
@@ -137,25 +160,25 @@ class OrderingService {
         throw new Error(`Slot ${bindToSlot} is already occupied by order ${newSlot.activeOrderId}`);
       }
 
-       // --- Unbind from the OLD Slot (if necessary) ---
-       // Check if the order was previously in a *different* slot
-       if (originalSlotId && originalSlotId !== newSlot.id) {
-          console.log(`Order ${order.id} is moving from slot ${originalSlotId} to ${newSlot.id}. Unbinding old slot.`);
-          const oldSlot = await Slot.find(originalSlotId);
-          if (oldSlot) {
-            // Only unbind if the old slot still points to *this* order
-            if (oldSlot.activeOrderId === order.id) {
-                oldSlot.activeOrderId = null;
-                // Potentially update other flags on the old slot if needed (e.g., isFilled = false?)
-                await oldSlot.save();
-                console.log(`Old slot ${originalSlotId} unbound.`);
-            } else {
-                console.warn(`Old slot ${originalSlotId} was expected to hold order ${order.id}, but holds ${oldSlot.activeOrderId}. Skipping unbind.`);
-            }
+      // --- Unbind from the OLD Slot (if necessary) ---
+      // Check if the order was previously in a *different* slot
+      if (originalSlotId && originalSlotId !== newSlot.id) {
+        console.log(`Order ${order.id} is moving from slot ${originalSlotId} to ${newSlot.id}. Unbinding old slot.`);
+        const oldSlot = await Slot.find(originalSlotId);
+        if (oldSlot) {
+          // Only unbind if the old slot still points to *this* order
+          if (oldSlot.activeOrderId === order.id) {
+            oldSlot.activeOrderId = null;
+            // Potentially update other flags on the old slot if needed (e.g., isFilled = false?)
+            await oldSlot.save();
+            console.log(`Old slot ${originalSlotId} unbound.`);
           } else {
-              console.warn(`Original slot ${originalSlotId} for order ${order.id} not found. Cannot unbind.`);
+            console.warn(`Old slot ${originalSlotId} was expected to hold order ${order.id}, but holds ${oldSlot.activeOrderId}. Skipping unbind.`);
           }
-       }
+        } else {
+          console.warn(`Original slot ${originalSlotId} for order ${order.id} not found. Cannot unbind.`);
+        }
+      }
 
       // --- Bind to the NEW Slot ---
       newSlot.activeOrderId = order.id; // Assign order to the new slot
@@ -170,24 +193,24 @@ class OrderingService {
       // --- Handle Unbinding (if bindToSlot is explicitly removed or invalid) ---
       console.log(`Order ${order.id} is being unbound from slot ${originalSlotId}.`);
       const oldSlot = await Slot.find(originalSlotId);
-        if (oldSlot) {
-            if (oldSlot.activeOrderId === order.id) {
-                oldSlot.activeOrderId = null;
-                 // Potentially update other flags
-                await oldSlot.save();
-                console.log(`Slot ${originalSlotId} unbound.`);
-            } else {
-                 console.warn(`Slot ${originalSlotId} was expected to hold order ${order.id}, but holds ${oldSlot.activeOrderId}. Skipping unbind.`);
-            }
+      if (oldSlot) {
+        if (oldSlot.activeOrderId === order.id) {
+          oldSlot.activeOrderId = null;
+          // Potentially update other flags
+          await oldSlot.save();
+          console.log(`Slot ${originalSlotId} unbound.`);
         } else {
-             console.warn(`Original slot ${originalSlotId} for order ${order.id} not found. Cannot unbind.`);
+          console.warn(`Slot ${originalSlotId} was expected to hold order ${order.id}, but holds ${oldSlot.activeOrderId}. Skipping unbind.`);
         }
+      } else {
+        console.warn(`Original slot ${originalSlotId} for order ${order.id} not found. Cannot unbind.`);
+      }
       order.slotId = -1; // Or null, depending on your schema/preference for 'unassigned'
     } else {
-         // No slot binding requested, and order wasn't previously bound
-         if (!order.slotId) { // Ensure consistency if it wasn't set
-            order.slotId = -1; // Or null
-         }
+      // No slot binding requested, and order wasn't previously bound
+      if (!order.slotId) { // Ensure consistency if it wasn't set
+        order.slotId = -1; // Or null
+      }
     }
 
 
@@ -209,7 +232,12 @@ class OrderingService {
 
   async changeNumberAndSendOTP(number: string, orderId: string) {
 
-    const order = await Order.query().whereLike('orderId', `%${orderId}%`).first();
+    const order = await Order.query().where('orderId', orderId).first();
+    await LogService.createLogRecord(
+      "ATTEMPT_OTP",
+      `Attempted to find order id ${orderId} by rider`
+
+    )
     if (!order) throw new Error("Order not found");
     // when it's validated, set lock
     order.state = "OTP_WAITING"
@@ -224,8 +252,14 @@ class OrderingService {
   }
 
   async validateOtp(orderId: string, otp: string) {
-    const order = await Order.query().whereLike('orderId', `%${orderId}%`).first();
+    const order = await Order.query().where('orderId', orderId).first();
+
     if (!order) throw new Error("Order not found");
+        await LogService.createLogRecord(
+      "ATTEMPT_ENTER_OTP",
+      `Attempted OTP ${otp} for order ${orderId} - OTP ${order.otpRider} and enter ${otp}` 
+
+    )
     if (order.otpRider !== otp) throw new Error("Invalid OTP");
 
 
@@ -238,8 +272,13 @@ class OrderingService {
    * by setting it to pending again
    */
   async cancelOrder(orderId: string) {
-    const order = await Order.query().whereLike('orderId', `%${orderId}%`).first();
+    const order = await Order.query().where('orderId', orderId).first();
     if (!order) throw new Error("Order not found");
+        await LogService.createLogRecord(
+      "ATTEMPT_CANCEL_ORDER",
+      `Order id ${orderId} cancelled`
+
+    )
     order.state = "PENDING";
     await order.save();
     return true;
@@ -252,22 +291,22 @@ class OrderingService {
    * ServoIndex = SlotId 
    */
   async dropMoney(orderId: string) {
-    const order = await Order.query().whereLike('orderId', `%${orderId}%`).first();
+    const order = await Order.query().where('orderId', orderId).first();
     if (!order) throw new Error("Order not found");
     if (order.type !== "COD") throw new Error("Order is not COD");
     if (!order.slotId || order.slotId < 0) throw new Error("Order is not bound to a slot");
     // when it's validated, set lock
- 
+
     await order.save();
     // set servo to -100 for 10 seconds
- 
+
     await new Promise(res => setTimeout(res, 100));
     console.log(`Dropping money for order ${orderId} in slot ${order.slotId}`)
     const servoIndex = order.slotId;
     const servoSpeed = -100;
     const duration = 10000; // 10 seconds
     const stopDelay = 2000; // 2 seconds
- 
+
     ArduinoInputService.setServoSpeed(servoIndex, servoSpeed);
     await new Promise(resolve => setTimeout(resolve, duration));
     ArduinoInputService.setServoSpeed(servoIndex, 0);
@@ -276,17 +315,17 @@ class OrderingService {
 
     return true;
   }
-  
 
 
-  
+
+
 
 
   /**
    * Mark order as finished (delivered), frees the slot, and A TODO to notify the USER
    */
-  async finishOrder(orderId: string) {
-    const order = await Order.query().whereLike('orderId', `%${orderId}%`).first();
+  async finishOrder(orderId: string, initialWeight: string, finalWeight: string) {
+    const order = await Order.query().where('orderId', orderId).first();
     if (!order) throw new Error("Order not found");
     if (!order.slotId || order.slotId < 0) throw new Error("Order is not bound to a slot");
     const slot = await Slot.find(order.slotId);
@@ -296,13 +335,21 @@ class OrderingService {
     slot.isFilled = false;
     await slot.save();
     order.state = "DELIVERED";
+    order.slotId = 0;
+    order.beforeWeight = parseFloat(initialWeight)
+    order.afterWeight = parseFloat(finalWeight)
+    await LogService.createLogRecord(
+      "ATTEMPT_FINISH_ORDER",
+      `Order ${orderId} finished! Weight: ${initialWeight} -> ${finalWeight}, slot ${order.slotId}, type ${order.type}, pkg weight ${order.afterWeight - order.beforeWeight}  `
+
+    )
     await order.save();
     return true;
   }
-  
 
 
-  
+
+
 
 
 }

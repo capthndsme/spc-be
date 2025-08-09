@@ -6,10 +6,11 @@ import ArduinoInputService from "../service/ArduinoInputService.js";
 import SlotService from "../service/SlotService.js";
 import Order from "#models/order";
 import OrderingService from "../service/OrderingService.js";
+import NotificationService from "../service/NotificationService.js";
 
 export default class DashController {
-  
-  async getDash({  }: HttpContext) {
+
+  async getDash({ }: HttpContext) {
     const data = TheService.getStates()
     return StatusResponse(
       data,
@@ -25,7 +26,7 @@ export default class DashController {
       Status.GENERIC_SUCCESS,
       false
     )
-    
+
   }
 
   async getSlots() {
@@ -35,7 +36,7 @@ export default class DashController {
       Status.GENERIC_SUCCESS,
       false
     )
-    
+
   }
 
   async updateSlot({ request }: HttpContext) {
@@ -47,12 +48,12 @@ export default class DashController {
       Status.GENERIC_SUCCESS,
       false
     )
-    
+
   }
 
-  async upsertOrder({request}: HttpContext) {
-    const { bindToSlot, orderInfo } = request.body() as {orderInfo: Order, bindToSlot?: number};
-    
+  async upsertOrder({ request }: HttpContext) {
+    const { bindToSlot, orderInfo } = request.body() as { orderInfo: Order, bindToSlot?: number };
+
     await OrderingService.upsertOrder(orderInfo, bindToSlot);
 
     return StatusResponse(
@@ -60,7 +61,7 @@ export default class DashController {
       Status.GENERIC_SUCCESS,
       false
     )
-    
+
   }
 
   async getOrder({ request }: HttpContext) {
@@ -71,13 +72,60 @@ export default class DashController {
       Status.GENERIC_SUCCESS,
       false
     )
-    }
+  }
 
-  async getOrders({}) {
+  async getOrders({ }) {
 
     const order = await OrderingService.getOrders();
     return StatusResponse(
       order,
+      Status.GENERIC_SUCCESS,
+      false
+    )
+
+  }
+
+  /** Test servo speed */
+  async testServo({ request }: HttpContext) {
+    const { id } = request.params()
+    if (!id) return null;
+    /** Test for 10 seconds */
+    ArduinoInputService.setServoSpeed(Number(id), -100);
+    await new Promise(res => setTimeout(res, 8000));
+    ArduinoInputService.setServoSpeed(Number(id), 100);
+    await new Promise(res => setTimeout(res, 8000));
+    ArduinoInputService.setServoSpeed(Number(id), 0);
+    await new Promise(res => setTimeout(res, 2000));
+    return StatusResponse(
+      {},
+      Status.GENERIC_SUCCESS,
+      false
+    )
+
+  }
+
+
+  async pingOkay() {
+    const okay = ArduinoInputService.pingReady;
+    if (okay) {
+      return StatusResponse(
+        {
+          ping: "pong"
+        },
+        Status.GENERIC_SUCCESS,
+        false
+      )
+
+    } else throw new Error("NOT_READY")
+  }
+
+  async registerToken({ request }: HttpContext) {
+    const { token } = request.body();
+    const userId = Number(request.header("X-user-id") ?? -1);
+    if (userId < 0) throw new Error("Invalid user id");
+    await NotificationService.upsertToken(userId, token);
+    return StatusResponse(
+      {},
       Status.GENERIC_SUCCESS,
       false
     )
@@ -86,4 +134,3 @@ export default class DashController {
 }
 
 
- 

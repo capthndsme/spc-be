@@ -20,10 +20,7 @@ router.get('/', async () => {
 })
 
 router.group(() => {
-
-
   router.get('/users/me', [UsersController, 'getMe'])
-
   router.post('/login', [AuthController, 'login'])
   router.post('/users/create', [UsersController, 'createUser'])
   router.put('/users/modify', [UsersController, 'modifyUser'])
@@ -31,7 +28,6 @@ router.group(() => {
   router.get('/users/list', [UsersController, 'listUsers'])
   router.get('/dash', [DashController, 'getDash'])
   router.post('/dash/tare', [DashController, 'tare'])
-
   /**
    * get slots
    */
@@ -46,8 +42,14 @@ router.group(() => {
   router.post('/orders/upsert', [DashController, 'upsertOrder'])
   router.get('/orders/:id', [DashController, 'getOrder'])
   router.get('/orders', [DashController, 'getOrders'])
+    /**
+     * servo test
+     */
 
+  router.post('/servo/:id', [DashController, 'testServo'])
+   router.get('/logs', [InternalsController, 'getLog'])
   
+   router.post('/tokens', [DashController, 'registerToken'])
 
   
 })
@@ -86,12 +88,14 @@ router.group(() => {
 
   // finish order
   router.post('/orders/finish', [InternalsController, 'finishOrder'])
-  
 
+  router.get('/logs', [InternalsController, 'getLog'])
+  
+router.get("/ping", res => res.response.send({ ping: "pong" }))
 
 })
   .prefix("/-internalFFXX-")
 
 
 
-router.get("/ping", res => res.response.send({ ping: "pong" }))
+router.get("/ping", [DashController, 'pingOkay'])
