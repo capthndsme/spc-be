@@ -50,6 +50,10 @@ FFMPEG_BIN = "/usr/bin/ffmpeg"
 
 MAX_STDERR_LINES = 200
 
+# Storage management
+MIN_FREE_SPACE_BYTES = 500 * 1024 * 1024  # 500MB buffer
+STORAGE_CHECK_INTERVAL_SEC = 60  # Check every minute
+
 for p in (VIDEO_ROOT, SNAPSHOT_DIR, HLS_DIR):
     p.mkdir(parents=True, exist_ok=True)
 
@@ -85,6 +89,72 @@ def _safe_int(v: Optional[int]) -> Optional[int]:
     except Exception:
         return None
 
+def _get_free_space_bytes() -> int:
+    """Get free space in bytes on the VIDEO_ROOT partition."""
+    try:
+        usage = shutil.disk_usage(VIDEO_ROOT)
+        return usage.free
+    except Exception as e:
+        sys.stderr.write(f"[storage] Failed to get disk usage: {e}\n")
+        sys.stderr.flush()
+        return 0
+
+def _cleanup_old_recordings() -> Tuple[int, int]:
+    """
+    Remove oldest recordings until free space >= MIN_FREE_SPACE_BYTES.
+    Returns (files_deleted, bytes_freed).
+    """
+    deleted_count = 0
+    bytes_freed = 0
+    
+    try:
+        free_space = _get_free_space_bytes()
+        if free_space >= MIN_FREE_SPACE_BYTES:
+            return (0, 0)
+        
+        # Get all mp4 files sorted by modification time (oldest first)
+        mp4_files = sorted(VIDEO_ROOT.glob("*.mp4"), key=lambda p: p.stat().st_mtime)
+        
+        if not mp4_files:
+            sys.stderr.write(f"[storage] No recordings to delete, but only {free_space / (1024**2):.1f}MB free\n")
+            sys.stderr.flush()
+            return (0, 0)
+        
+        sys.stderr.write(f"[storage] Low space detected ({free_space / (1024**2):.1f}MB free), cleaning up old recordings...\n")
+        sys.stderr.flush()
+        
+        for mp4_file in mp4_files:
+            if free_space >= MIN_FREE_SPACE_BYTES:
+                break
+            
+            try:
+                file_size = mp4_file.stat().st_size
+                mp4_file.unlink()
+                deleted_count += 1
+                bytes_freed += file_size
+                free_space += file_size
+                
+                sys.stderr.write(f"[storage] Deleted {mp4_file.name} ({file_size / (1024**2):.1f}MB)\n")
+                sys.stderr.flush()
+                
+            except Exception as e:
+                sys.stderr.write(f"[storage] Failed to delete {mp4_file.name}: {e}\n")
+                sys.stderr.flush()
+        
+        if deleted_count > 0:
+            sys.stderr.write(
+                f"[storage] Cleanup complete: deleted {deleted_count} file(s), "
+                f"freed {bytes_freed / (1024**2):.1f}MB, "
+                f"now {free_space / (1024**2):.1f}MB free\n"
+            )
+            sys.stderr.flush()
+        
+    except Exception as e:
+        sys.stderr.write(f"[storage] Cleanup failed: {e}\n")
+        sys.stderr.flush()
+    
+    return (deleted_count, bytes_freed)
+
 # =========================
 # Streaming/Recording supervisor
 # =========================
@@ -103,6 +173,7 @@ class StreamSupervisor:
         self._ff_err_ring = deque(maxlen=MAX_STDERR_LINES)
 
         self._monitor_thread: Optional[threading.Thread] = None
+        self._last_storage_check: float = 0
 
     def start(self):
         with self.lock:
@@ -292,6 +363,17 @@ class StreamSupervisor:
     def _monitor_loop(self):
         while not self.stop_event.is_set():
             time.sleep(1)
+            
+            # Periodic storage check
+            now = time.time()
+            if now - self._last_storage_check >= STORAGE_CHECK_INTERVAL_SEC:
+                self._last_storage_check = now
+                try:
+                    _cleanup_old_recordings()
+                except Exception as e:
+                    sys.stderr.write(f"[supervisor] storage check failed: {e}\n")
+                    sys.stderr.flush()
+            
             with self.lock:
                 cam_alive = self.cam_proc and (self.cam_proc.poll() is None)
                 ffm_alive = self.ffmpeg_proc and (self.ffmpeg_proc.poll() is None)
