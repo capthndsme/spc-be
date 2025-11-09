@@ -12,6 +12,7 @@ import DashController from '#controllers/DashController'
 import InternalsController from '#controllers/internals_controller'
 import UsersController from '#controllers/UserController'
 import router from '@adonisjs/core/services/router'
+import { middleware } from '#start/kernel'
 
 router.get('/', async () => {
   return {
@@ -52,7 +53,7 @@ router.group(() => {
    router.post('/tokens', [DashController, 'registerToken'])
 
   
-})
+}).use(middleware.auth())
 router.post('/auth/login', [AuthController, 'login'])
 // check auth api
 

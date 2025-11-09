@@ -29,6 +29,8 @@ class AuthService {
     if (valid) {
       console.log("login success - make token")
       const nTk = randomBytes(36).toString('hex');
+      // Enforce single-session: remove existing tokens for this user
+      await Token.query().where('user_id', user.id).delete()
       await Token.create({
         token: nTk,
         userId: user.id
