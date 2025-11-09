@@ -6,6 +6,7 @@ import SMSService from "./SMSService.js";
 
 import ArduinoInputService from "./ArduinoInputService.js";
 import LogService from "./LogService.js";
+import DropperSlot from "#models/dropper_slot";
 
 class OrderingService {
 
@@ -318,6 +319,25 @@ class OrderingService {
 
 
 
+  async getDropperSlots() {
+    const slots = await DropperSlot.query().orderBy('id', 'asc');
+
+    // If the slot has 50grams or more weight, it means it's 
+    // occupied. Let's get it from ArduinoInputService, as it has 
+    // the weight.
+    const currentWeights = ArduinoInputService.getSensorData().weights;
+
+    return slots.map((slot, index) => {
+      const weight = currentWeights[index] || 0; // Get weight for this slot, default to 0
+      const isOccupied = weight >= 50; // 50 grams threshold for occupied
+      return {
+        ...slot.toJSON(), // Convert model instance to plain object
+        isOccupied: isOccupied,
+        currentWeight: weight,
+      };
+    });
+    
+  }
 
 
 

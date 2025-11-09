@@ -19,8 +19,8 @@ export default class DashController {
     )
   };
 
-  async tare() {
-    const tare = await ArduinoInputService.tare();
+  async tare({request} : HttpContext) {
+    const tare = await ArduinoInputService.tare(request.qs()['id']);
     return StatusResponse(
       tare,
       Status.GENERIC_SUCCESS,

@@ -9,9 +9,11 @@ export default class InternalsController {
   /**
    * Wait Relock App
    */
-  async waitRelock() {
+  async waitRelock({request}: HttpContext) {
+    const {index} = request.qs()  
     return await new Promise((res) => {
       GPIOService.unlockAndWaitForRelock(
+        index,
         () => res(
           StatusResponse(true, Status.GENERIC_SUCCESS, false)
         ),
@@ -99,5 +101,12 @@ export default class InternalsController {
   }
   
 
+  // view dropper slots availability
+
+  async getDropperSlots({  }: HttpContext) {
+    const data = await OrderingService.getDropperSlots();
+    return StatusResponse(data, Status.GENERIC_SUCCESS, false);
+  }
+  
 
 }

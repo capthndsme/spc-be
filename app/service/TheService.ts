@@ -1,3 +1,4 @@
+import app from "@adonisjs/core/services/app";
 import ArduinoInputService from "./ArduinoInputService.js";
 import GPIOService from "./GPIOService.js";
  
@@ -22,6 +23,8 @@ class TheService {
    */
 
   boot() {
+    // Block loading on non WEB environment
+    if (app.getEnvironment() !== "web") return;
     if (this.booted) return console.log("[THESERVICE] ALREADY BOOTED");
     this.booted = true;
     console.log(`THE SERVICE HAS BOOT`)

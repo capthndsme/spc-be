@@ -3,6 +3,7 @@ import { ReadlineParser } from '@serialport/parser-readline';
 import { EventEmitter } from 'events';
 import env from '#start/env';
 import { exec } from 'child_process';
+import app from '@adonisjs/core/services/app';
 
 // --- Types ---
 type SensorData = {
@@ -47,6 +48,9 @@ class ArduinoInputBridge extends EventEmitter {
 
   constructor() {
     super();
+    if (
+      app.getEnvironment() !== "web"
+    ) return;
     this.changePermission(() => {
       if (!env.get('IS_PI', false)) { // Optional: Add env var to force mock
         console.log('Forcing mock mode via environment variable.');
@@ -178,6 +182,9 @@ class ArduinoInputBridge extends EventEmitter {
         this.pingReady = true;
         
       }
+
+
+     
       // --- SMS Response Handling ---
       if (this.isSendingSms && this.currentSmsJob) {
         // Check for specific success/failure strings from *your* Arduino code

@@ -41,7 +41,7 @@ class GPIOService {
   map = {
     output: {
       // Assuming HIGH/true = Locked, LOW/false = Unlocked.
-      SolenoidLock: [17, 22, 23, 24], // Using common available GPIO pins
+      SolenoidLock: [17, 23, 22, 24], // Using common available GPIO pins
     },
     input: {
       // Assuming Pull-up: HIGH/true = open circuit (magnet far), LOW/false = closed circuit (magnet near)
@@ -139,6 +139,7 @@ class GPIOService {
         if (!state.isWaiting) return;
 
         const currentState = states[index];
+        
         console.log(`Sequence Callback for lock ${index + 1}: Current magnet state: ${currentState ? 'detected (closed)' : 'not detected (open)'}, Waiting for open: ${state.waitingForOpen}`);
 
         if (state.waitingForOpen && currentState === false) {
@@ -215,6 +216,7 @@ class GPIOService {
     }
 
     const state = this.#relockStates[lockIndex];
+    console.log("Our states", this.#relockStates)
 
     if (state.isWaiting) {
       console.warn(`Already waiting for a relock sequence on lock ${lockIndex + 1}. Ignoring new request.`);

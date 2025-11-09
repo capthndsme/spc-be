@@ -34,7 +34,7 @@ class SMSService {
     const body = JSON.stringify({
       message: message,
       phoneNumbers: [number],
-      simNumber: 2
+      simNumber: 1
     });
 
     const response = await fetch(url, {
