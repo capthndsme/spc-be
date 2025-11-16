@@ -19,7 +19,8 @@ export default class extends BaseSchema {
         "ATTEMPT_CANCEL_ORDER",
         "ATETMPT_UNLOCK_COMPARTMENT",
         "ATTEMPT_DROP_MONEY",
-        "ATTEMPT_FINISH_ORDER"
+        "ATTEMPT_FINISH_ORDER",
+        "DELETE_ORDER"
       ]).notNullable()
       table.string('data_msg').notNullable()
       table.string('photo_image').nullable()
