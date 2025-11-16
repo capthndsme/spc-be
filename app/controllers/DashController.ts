@@ -74,9 +74,9 @@ export default class DashController {
     )
   }
 
-  async getOrders({ }) {
-
-    const order = await OrderingService.getOrders();
+  async getOrders({ request }: HttpContext) {
+    const includeDeleted = request.qs().includeDeleted === 'true';
+    const order = await OrderingService.getOrders(includeDeleted);
     return StatusResponse(
       order,
       Status.GENERIC_SUCCESS,

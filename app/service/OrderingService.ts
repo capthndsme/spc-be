@@ -224,8 +224,14 @@ class OrderingService {
     return await this.findOrderId(String(order.id));
   }
 
-  async getOrders() {
-    return await Order.query().orderBy('id', 'asc');
+  async getOrders(includeDeleted: boolean = false) {
+    const query = Order.query().orderBy('id', 'asc');
+    
+    if (!includeDeleted) {
+      query.whereNot('state', 'DELETED');
+    }
+    
+    return await query;
   }
 
 
