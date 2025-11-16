@@ -43,6 +43,7 @@ router.group(() => {
   router.post('/orders/upsert', [DashController, 'upsertOrder'])
   router.get('/orders/:id', [DashController, 'getOrder'])
   router.get('/orders', [DashController, 'getOrders'])
+  router.delete('/orders/:id', [DashController, 'deleteOrder'])
     /**
      * servo test
      */

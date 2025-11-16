@@ -367,6 +367,43 @@ class OrderingService {
     return true;
   }
 
+  /**
+   * Delete an order by ID
+   * - Unbinds from slot if bound
+   * - Sets state to DELETED (soft delete)
+   * - Logs the deletion
+   */
+  async deleteOrder(id: number) {
+    const order = await Order.find(id);
+    if (!order) throw new Error("Order not found");
+
+    // Unbind from slot if the order is bound
+    if (order.slotId && order.slotId > 0) {
+      const slot = await Slot.find(order.slotId);
+      if (slot && slot.activeOrderId === order.id) {
+        slot.activeOrderId = null;
+        slot.moneyAmount = 0;
+        slot.isFilled = false;
+        await slot.save();
+        await LogService.createLogRecord(
+          "DELETE_ORDER",
+          `Order ${id} deleted - unbound from slot ${order.slotId}`
+        );
+      }
+    }
+
+    // Soft delete by setting state to DELETED
+    order.state = "DELETED";
+    await order.save();
+
+    await LogService.createLogRecord(
+      "DELETE_ORDER",
+      `Order ${id} (${order.orderId}) deleted by admin`
+    );
+
+    return true;
+  }
+
 
 
 

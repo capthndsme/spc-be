@@ -85,6 +85,16 @@ export default class DashController {
 
   }
 
+  async deleteOrder({ request }: HttpContext) {
+    const { id } = request.params();
+    await OrderingService.deleteOrder(Number(id));
+    return StatusResponse(
+      {},
+      Status.GENERIC_SUCCESS,
+      false
+    )
+  }
+
   /** Test servo speed */
   async testServo({ request }: HttpContext) {
     const { id } = request.params()

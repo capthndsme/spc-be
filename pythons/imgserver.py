@@ -38,7 +38,7 @@ HLS_DIR = Path("/tmp/hls").resolve()
 WIDTH = 1280
 HEIGHT = 720
 FPS = 15
-BITRATE = 2_000_000
+BITRATE = 1_000_000  # 1 Mbps = ~450 MB/hr, ~7.2 GB for 16 hours
 SEGMENT_SECONDS = 600
 SNAPSHOT_EVERY_SEC = 60  # Take snapshot every minute for easier playback
 
