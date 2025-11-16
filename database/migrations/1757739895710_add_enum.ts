@@ -15,5 +15,6 @@ export default class extends BaseSchema {
     this.schema.alterTable(this.tableName, (table) => {
       table.dropColumn('log_type')
     })
+  }
    
 }
