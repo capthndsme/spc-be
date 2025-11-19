@@ -33,6 +33,8 @@ class OrderingService {
     return await Order.query()
       .preload('slot')
       .where('orderId', pid)
+      // removes deleted.
+      .whereNot('state', 'DELETED')
       .first() || null
   }
 
