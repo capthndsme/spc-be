@@ -234,8 +234,8 @@ void initializeWeightSensors() {
     float storedCal;
     EEPROM.get(CALIBRATION_EEPROM_ADDR_START + (i * sizeof(float)), storedCal);
 
-    // Sanity check the loaded value
-    if (storedCal != 0.0 && !isnan(storedCal) && storedCal > 10 && storedCal < 1000000) {
+    // Sanity check the loaded value (modified to allow negative calibration for inverted sensors)
+    if (storedCal != 0.0 && !isnan(storedCal) && abs(storedCal) > 10 && abs(storedCal) < 1000000) {
       calibrationValues[i] = storedCal;
       Serial.print("Using saved calibration ");
     } else {
